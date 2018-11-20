@@ -12,7 +12,7 @@ def getLastOutputs(outputs, lens):
     return torch.stack(lasts)
 
 class SentenceEncoder(torch.nn.Module):
-    def __init__(self, word_size, em_size, hidden_size, output_size, dropout=0.1, last_output = True):
+    def __init__(self, word_size, output_size, em_size=256, hidden_size=256, dropout=0.1, last_output = True):
         super(SentenceEncoder, self).__init__()
 
         self.last_output = last_output
@@ -48,7 +48,7 @@ class SentenceEncoder(torch.nn.Module):
         return outputs, hiddens
     
 class SentenceDecoder(torch.nn.Module):
-    def __init__(self, word_size, em_size, hidden_size, feature_size, dropout=0.1, last_output = False):
+    def __init__(self, word_size, feature_size, em_size=256, hidden_size=256, dropout=0.1, last_output = False):
         super(SentenceDecoder, self).__init__()
 
         self.last_output = last_output
@@ -68,8 +68,8 @@ class SentenceDecoder(torch.nn.Module):
         pad_seq = pad_sequence(inputs, batch_first=True, padding_value=self.padding_value)
         pad_seq = self.embedding(pad_seq)
         
-        feature = feature.unsqueeze(1).repeat(1, pad_seq.size(1), 1)
-        pad_seq = torch.cat([pad_seq] + feature, dim=2)
+        feature = torch.cat(feature, dim=1).unsqueeze(1).repeat(1, pad_seq.size(1), 1)
+        pad_seq = torch.cat([pad_seq, feature], dim=2)
         
         sort_seq = pad_seq[fwdOrder]
         sort_seq = self.dropout(sort_seq)
@@ -86,7 +86,7 @@ class SentenceDecoder(torch.nn.Module):
         return outputs, hiddens    
     
 class ImageEncoder(torch.nn.Module):
-    def __init__(self, cnn_hidden, output_size=512, dropout=0.1, cnn_type=models.resnet50, pretrained=False):
+    def __init__(self, output_size, cnn_hidden=1024, dropout=0.1, cnn_type=models.resnet50, pretrained=False):
         super(ImageEncoder, self).__init__()
         self.cnn = cnn_type(pretrained=pretrained)
         if cnn_type == models.resnet50:
@@ -107,3 +107,18 @@ cnnTransforms = transforms.Compose([transforms.Resize(256),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.485, 0.456, 0.406], 
                                                          [0.229, 0.224, 0.225])])
+
+class Gesd(torch.nn.Module):
+    def __init__(self, gamma=1, c=1, dim=1):
+        super(Gesd, self).__init__()
+        self.gamma = gamma
+        self.c = c
+        self.dim = dim
+
+    def forward(self, f1, f2):
+        l2_norm = ((f1-f2) ** 2).sum(dim=self.dim)
+        euclidean = 1 / (1 + l2_norm)
+        sigmoid  = 1 / (1 + torch.exp(-1 * self.gamma * ((f1*f2).sum(dim=self.dim) + self.c)))
+        output = euclidean * sigmoid
+
+        return output

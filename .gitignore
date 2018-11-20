@@ -1,0 +1,10 @@
+*.pth
+*.pkl
+*.h5
+__pycache__
+.ipynb_checkpoints
+*tfevents*
+*.json
+*.csv
+others
+models
