@@ -7,7 +7,7 @@ class RLhelper():
     def getRLSample(self, images_t, questions_t, eos, maxLength=20):
 
         # create new tensor as same as image device
-        inputs = images_t.new_tensor([[eos]], dtype=torch.long)
+        inputs = images_t.new_tensor([[sos]], dtype=torch.long)
         inputs = inputs.repeat(images_t.size(0), 1)
         hidden = None
         sampleAns = []

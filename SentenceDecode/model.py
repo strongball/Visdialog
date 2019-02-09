@@ -26,7 +26,7 @@ class VQADualModel(torch.nn.Module):
         self.questionModel = SentenceEncoder(**sentence_setting)
         
         concat_size = image_setting["output_size"] + sentence_setting["output_size"]
-        self.concatLayer = torch.nn.Sequential(
+        self.concatLayer = model = torch.nn.Sequential(
             torch.nn.Linear(concat_size, concat_size),
             torch.nn.ReLU(),
             torch.nn.Dropout(concat_dropout),

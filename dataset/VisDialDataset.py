@@ -30,6 +30,7 @@ class VisDialDataset(Dataset):
             
     def __len__(self):
         return len(self.data["dialogs"])
+        #return 10000
 
     def getImage(self, image_id):
         file = self.imageFile[image_id]

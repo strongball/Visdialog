@@ -7,9 +7,9 @@ from torch.nn.utils.rnn import pad_sequence
 from utils.tool import Average
 from tqdm import tqdm
 
-from model.model import cnnTransforms, Gesd
-from VQAFeature.model import VQADualModel
-from VQAFeature.utils import setDualData
+from model.model import cnnTransforms
+from SentenceDecode.model import SentenceDecoder
+from SentenceDecode.utils import setData, collate_fn
 
 from dataset import VisDialDataset
 from utils.token import Lang
@@ -20,18 +20,19 @@ def addArgparse():
     parser = argparse.ArgumentParser()
     parser.add_argument('-e', '--epoch', help="Epoch to Train", type=int, default=10)
     parser.add_argument('-b', '--batch', help="Batch size", type=int, default=30)
-    parser.add_argument('-lr', help="Loss to Train", type=float, default = 1e-3)
+    parser.add_argument('-lr', help="Loss to Train", type=float, default = 1e-4)
     parser.add_argument('-m', '--model', help="model dir", required=True)
-    parser.add_argument('-d', '--data', help="Data loaction", default="/home/ball/dataset/mscoco/visdialog/visdial_1.0_train.json")
+    parser.add_argument('-d', '--data', help="Data loaction", default="/home/ball/dataset/mscoco/visdialog/visdial_1.0_val.json")
     parser.add_argument('-l', '--lang', help="Lang file", default="dataset/lang.pkl")
-    parser.add_argument('-f', '--feature', help="Feature file", default="visdial_train.h5")
     parser.add_argument('-c', '--coco', help="coco image location", default="/home/ball/dataset/mscoco")
+    parser.add_argument('-f', '--encode', help="encode model")
     return parser
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def trainer(args):
     if not os.path.isdir(args.model):
         os.makedirs(args.model, )
+    print("Decode feature")
     print("Use Device: {}".format(DEVICE))
     
     lang = Lang.load(args.lang)
@@ -41,26 +42,23 @@ def trainer(args):
                              imgTransform = cnnTransforms,
                              convertSentence = lang.sentenceToVector)
     
-    loader = torch.utils.data.DataLoader(dataset, 
+    loader = torch.utils.data.DataLoader(dataset.data["answers"],
                                          batch_size=args.batch, 
                                          shuffle=True, 
-                                         num_workers=0, 
-                                         collate_fn=VisDialDataset.collate_fn)
+                                         num_workers=4, 
+                                         collate_fn=collate_fn)
 
-    image_setting = {
-        "output_size": 1024,
-        "pretrained": True
-    }
+    encodeModel = torch.load(args.encode).to(DEVICE).eval()
+    
     sentence_setting = {
         "word_size": len(lang),
-        "output_size": 512
+        "feature_size": 512,
     }
-
-    model = VQADualModel(image_setting, sentence_setting).to(DEVICE)
+    model = SentenceDecoder(**sentence_setting).to(DEVICE)
 
     model.train()
     
-    criterion = torch.nn.BCELoss()
+    criterion = torch.nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     recLoss = Average()
     
@@ -71,6 +69,7 @@ def trainer(args):
         pbar.set_description("Epoch: {}, Loss: {:.4f}".format(epoch, 0))
         for i, data in enumerate(pbar, 0):
             loss = step(model=model, 
+                        encodeModel=encodeModel,
                         data=data, 
                         criterion=criterion, 
                         optimizer=optimizer,
@@ -81,14 +80,15 @@ def trainer(args):
             if i % 10 == 0:
                 pass
                 #pbar.set_description("Epoch: {}, Loss: {:.5f}".format(epoch, recLoss.getAndReset()))
-        torch.save(model, os.path.join(args.model, "VQAmodel.{}.pth".format(epoch)))    
+        torch.save(model, os.path.join(args.model, "DecodeModel.{}.pth".format(epoch)))    
 
-def step(model, criterion, optimizer, **args):
-    images_t, questions_t, answers_t, label_t = setDualData(**args)
+def step(model, encodeModel, criterion, optimizer, **args):
+    en_seq, de_seq = setData(**args)
     
-    scores = model(images_t, questions_t, answers_t)
+    feature = encodeModel.answer(en_seq)
+    sent, _ = model(de_seq["in"], [feature.detach()])
 
-    loss = criterion(scores, label_t)
+    loss = criterion(sent.view(-1, sent.size(2)), de_seq["out"].view(-1))
     
     optimizer.zero_grad()
     loss.backward()
